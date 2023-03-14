@@ -8,6 +8,7 @@ pub async fn transaction_callback(provider: Provider<Ws>, tx: Result<Transaction
     let tx = match tx {
         Ok(tx) => tx,
         Err(tx_hash) => loop {
+            // TODO: Add a timeout.
             let tx = provider.get_transaction(tx_hash).await.unwrap();
             if let Some(tx) = tx {
                 break tx;
