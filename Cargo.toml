@@ -1,0 +1,14 @@
+[package]
+name = "jit_liquidity_strategy"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ethers = { version = "2.0.0", features = ["ws", "openssl", "rustls"] }
+ethers-providers = "2.0.0"
+serde = "1.0.155"
+serde_yaml = "0.9.19"
+tokio = { version = "1.26.0", features = ["full"] }
+
