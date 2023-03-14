@@ -17,5 +17,8 @@ pub async fn transaction_callback(provider: Provider<Ws>, tx: Result<Transaction
             }
         },
     };
+    // How do we get a lot of money for bundling?
+    // What about flash loans?
+    // TODO: Flashbots bundling.
     println!("{tx:?}");
 }
