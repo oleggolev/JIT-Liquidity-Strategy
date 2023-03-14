@@ -14,8 +14,9 @@ mod config;
 
 const DEFAULT_CONFIG_PATH: &str = "config.yaml";
 
-const INFURA_WS: &str = "wss://mainnet.infura.io/ws/v3";
-const LLAMA_NODES_WS: &str = "wss://eth.llamarpc.com";
+const INFURA_MAINNET: &str = "wss://mainnet.infura.io/ws/v3";
+const INFURA_TESTNET: &str = "wss://goerli.infura.io/ws/v3";
+const LLAMA_NODES_MAINNET: &str = "wss://eth.llamarpc.com";
 
 #[tokio::main]
 async fn main() {
@@ -27,8 +28,22 @@ async fn main() {
     );
 
     let provider = Provider::<Ws>::connect(match config.provider {
-        config::Provider::LlamaNodes => LLAMA_NODES_WS.to_string(),
-        config::Provider::Infura => format!("{}/{}", INFURA_WS, config.api_key.unwrap()),
+        config::Provider::LlamaNodes => {
+            if config.is_test {
+                unimplemented!(); // LlamaNodes does not yet provide access to the Goerli testnet
+            } else {
+                LLAMA_NODES_MAINNET.to_string()
+            }
+        }
+        config::Provider::Infura => format!(
+            "{}/{}",
+            if config.is_test {
+                INFURA_TESTNET
+            } else {
+                INFURA_MAINNET
+            },
+            config.api_key.unwrap()
+        ),
         config::Provider::Ganache => {
             let ganache = Ganache::new().spawn();
             let ganache_ws_endpoint = ganache.ws_endpoint();
