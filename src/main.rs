@@ -1,8 +1,9 @@
-use std::thread;
+use std::{num::ParseIntError, thread};
 
 use callback::transaction_callback;
 use ethers::{
     providers::{Middleware, Provider, StreamExt, Ws},
+    types::H256,
     utils::Ganache,
 };
 use ethers_providers::stream::tx_stream::GetTransactionError;
@@ -45,7 +46,9 @@ async fn main() {
             config.api_key.unwrap()
         ),
         config::Provider::Ganache => {
-            let ganache = Ganache::new().spawn();
+            let ganache = Ganache::new()
+                .fork("https://goerli.infura.io/v3/4250fb4ff74c4fa5b27e19fa82451925")
+                .spawn();
             let ganache_ws_endpoint = ganache.ws_endpoint();
             thread::spawn(move || {
                 println!("Running a local Ganache node: {}", ganache.ws_endpoint());
@@ -64,7 +67,33 @@ async fn main() {
         .transactions_unordered(10)
         .fuse();
 
+    pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
+            .collect()
+    }
+
     loop {
+        println!("HERE");
+        let latest_block_number = provider.get_block_number().await.unwrap();
+        println!("{:?}", provider.get_block(latest_block_number).await);
+        println!(
+            "{:?}",
+            provider
+                .get_transaction(H256::from(
+                    std::convert::TryInto::<[u8; 32]>::try_into(
+                        decode_hex(
+                            "a62cff0c2868bab929de26c079d4356a72998eb4a1dc48358ccebc4e95b85977"
+                        )
+                        .unwrap()
+                        .as_slice()
+                    )
+                    .unwrap()
+                ))
+                .await
+        );
+
         let pcc = provider.clone();
         let tx = tx_stream.next().await.unwrap().map_err(|err| match err {
             GetTransactionError::ProviderError(_, _) => panic!("provider failed"),
