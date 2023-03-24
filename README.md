@@ -28,8 +28,8 @@ Example `config.yaml` file:
 is_test: true
 provider: infura
 api_key: <INSERT_YOUR_KEY_HERE>
-block_time: 10
-tx_retry_times: 10
+block_time: 12
+tx_retry_times: 5
 tx_retry_interval: 100
 ```
 ```

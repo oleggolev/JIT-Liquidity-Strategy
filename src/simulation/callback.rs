@@ -1,7 +1,7 @@
 use std::{thread, time};
 
 use ethers::providers::Provider;
-use ethers::types::Transaction;
+use ethers::types::{Transaction, TransactionRequest};
 use ethers_providers::stream::GetTransactionError;
 use ethers_providers::{Middleware, Ws};
 
@@ -37,12 +37,22 @@ pub async fn transaction_callback(
         },
     };
 
-    // Pass the transaction to the Ganache network.
-    let _receipt = ip
-        .send_transaction(&tx, None)
+    // Determine whether this transaction is caused by a swap.
+    // To read: https://ethereum.stackexchange.com/questions/130715/how-to-determine-whether-a-pending-tx-is-a-result-of-a-swap-in-uniswap
+
+    // Reconstruct the transaction with as a request and pass it to the Ganache network.
+    let tx_req = TransactionRequest::new()
+        .from(tx.from)
+        .to(tx.to.unwrap())
+        .gas(tx.gas)
+        .gas_price(tx.gas_price.unwrap())
+        .value(tx.value);
+
+    // Pass the reconstructed transaction to the Ganache network.
+    ip.send_transaction(tx_req, None)
         .await
         .unwrap()
-        .confirmations(3)
+        .confirmations(1)
         .await
         .unwrap()
         .unwrap();
