@@ -6,16 +6,17 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum Provider {
-    LlamaNodes,
     Infura,
-    Ganache,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     pub is_test: bool,
     pub provider: Provider,
-    pub api_key: Option<String>,
+    pub api_key: String,
+    pub block_time: u64,
+    pub tx_retry_times: u64,
+    pub tx_retry_interval: u64,
 }
 
 pub fn read_config(path: impl AsRef<std::path::Path>) -> Config {

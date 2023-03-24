@@ -9,6 +9,7 @@ edition = "2021"
 ethers = { version = "2.0.0", features = ["ws", "openssl", "rustls"] }
 ethers-flashbots = "0.12.1"
 ethers-providers = "2.0.0"
+futures-util = "0.3.27"
 serde = "1.0.155"
 serde_yaml = "0.9.19"
 tokio = { version = "1.26.0", features = ["full"] }
