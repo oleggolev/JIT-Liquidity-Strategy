@@ -2,14 +2,15 @@ mod callback;
 
 use ethers::{
     providers::{Middleware, Provider, Ws},
-    utils::{Ganache, GanacheInstance},
+    types::{BlockNumber, Filter, ValueOrArray, H256},
+    utils::{keccak256, Ganache, GanacheInstance},
 };
 use ethers_providers::rpc::transports::ws::WsClient;
 use ethers_providers::StreamExt;
 
 use crate::config::Config;
 
-use self::callback::transaction_callback;
+use self::callback::event_callback;
 
 const INFURA_MAINNET_WS: &str = "wss://mainnet.infura.io/ws/v3";
 const INFURA_TESTNET_WS: &str = "wss://goerli.infura.io/ws/v3";
@@ -38,7 +39,7 @@ pub async fn start(config: Config) -> String {
         .await
         .unwrap();
 
-    // Connect to the provider through which we will process real-time transactions on the local Ganache network.
+    // Connect to the provider through which we will process real-time events on the local Ganache network.
     let external_provider = Provider::<Ws>::connect(match config.provider {
         crate::config::Provider::Infura => format!(
             "{}/{}",
@@ -53,7 +54,7 @@ pub async fn start(config: Config) -> String {
     .await
     .unwrap();
 
-    // Process and forward all transactions in a separate thread.
+    // Process and forward all events in a separate thread.
     // This also keeps the ganache instance alive since it moves.
     tokio::spawn(async move {
         forward(ganache, external_provider, ganache_provider, config).await;
@@ -68,22 +69,40 @@ async fn forward(
     ip: Provider<WsClient>,
     config: Config,
 ) {
-    let mut tx_stream = ep
-        .subscribe_pending_txs()
+    let mut events_stream = ep
+        .subscribe_logs(
+            &Filter::new()
+                .from_block(
+                    ep.clone()
+                        .get_block(BlockNumber::Latest)
+                        .await
+                        .unwrap()
+                        .unwrap()
+                        .number
+                        .unwrap(),
+                )
+                .topic0(ValueOrArray::Value(H256::from(keccak256(
+                    "Swap(address,uint256,uint256,uint256,uint256,address)",
+                )))),
+        )
         .await
-        .unwrap()
-        .transactions_unordered(10)
-        .fuse();
-    let accs = ip.get_accounts().await.unwrap();
+        .unwrap();
     loop {
         // Clone provider nodes.
         let ep = ep.clone();
         let ip = ip.clone();
-        let tx = tx_stream.next().await.unwrap();
+        let event = events_stream.next().await.unwrap();
 
-        // Process each new transaction.
+        // Process each new event
         tokio::spawn(async move {
-            transaction_callback(ep, ip, tx, config.tx_retry_times, config.tx_retry_interval).await;
+            event_callback(
+                event,
+                ep,
+                ip,
+                config.tx_retry_times,
+                config.tx_retry_interval,
+            )
+            .await;
         });
     }
 }

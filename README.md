@@ -3,7 +3,7 @@ Creating a Just-in-time (“JIT”) liquidity service on top of the Ethereum pen
 
 ## Config
 
-The JIT service consumes a `config.yaml` file which specified its runtime parameters. The service first establishes a connection to the Ethereum mainnet or Goerli testnet in order to monitor the pending Ethereum transactions pool. This can be done via middleware like Infura, Flashbots, or by running a local Geth client. Alternatively one could use local Ganache node where the user has a completely isolated Ethereum network for testing. To be able to do the latter, install the Ganache CLI with `node` (>= v14.0.0)`npm` (>= 6.0.0) on your Linux / MacOS machine.
+The JIT service consumes a `config.yaml` file which specified its runtime parameters. The service first establishes a connection to the Ethereum mainnet or Goerli testnet in order to monitor the pending Ethereum transactions pool. We watch for swap transactions and forward them to our local Ganache node where we perform a JIT attack without monetary limitations. To be able to launch a local Ganache node, install the Ganache CLI with `node` (>= v14.0.0)`npm` (>= 6.0.0) on your Linux / MacOS machine.
 
 To update `node` to stable version (v16.15.0):
 ```bash
