@@ -1,13 +1,13 @@
 mod callback;
 
 use ethers::{
-    prelude::k256::{elliptic_curve::generic_array::GenericArray, Secp256k1, SecretKey},
+    prelude::k256::SecretKey,
     providers::{Middleware, Provider, Ws},
-    types::{BlockNumber, Filter, ValueOrArray, H160, H256},
+    types::{BlockNumber, Filter, ValueOrArray, H256},
     utils::{keccak256, Ganache, GanacheInstance},
 };
-use ethers_providers::rpc::transports::ws::WsClient;
 use ethers_providers::StreamExt;
+use ethers_providers::{rpc::transports::ws::WsClient, Http};
 
 use crate::config::Config;
 
@@ -33,13 +33,11 @@ pub async fn start(config: Config) -> String {
             config.api_key,
         ))
         .spawn();
-    let ganache_ws_endpoint = ganache.ws_endpoint();
+    let ganache_http_endpoint = ganache.endpoint();
     let private_key = ganache.keys()[0].clone();
 
     // Connect to the ganache node.
-    let ganache_provider = Provider::<Ws>::connect(ganache_ws_endpoint.clone())
-        .await
-        .unwrap();
+    let ganache_provider = Provider::<Http>::try_from(ganache_http_endpoint.clone()).unwrap();
 
     // Connect to the provider through which we will process real-time events on the local Ganache network.
     let external_provider = Provider::<Ws>::connect(match config.provider {
@@ -69,13 +67,13 @@ pub async fn start(config: Config) -> String {
         .await;
     });
 
-    ganache_ws_endpoint
+    ganache_http_endpoint
 }
 
 async fn forward(
     _ganache: GanacheInstance,
     ep: Provider<WsClient>,
-    ip: Provider<WsClient>,
+    ip: Provider<Http>,
     config: Config,
     private_key: SecretKey,
 ) {
@@ -108,14 +106,15 @@ async fn forward(
         // Process each new event
         tokio::spawn(async move {
             _ = event_callback(
-                event,
+                event.clone(),
                 ep,
                 ip,
                 config.tx_retry_times,
                 config.tx_retry_interval,
                 private_key,
             )
-            .await;
+            .await
+            .map_err(|err| println!("could not process event {}: {:?}", event.address, err));
         });
     }
 }
