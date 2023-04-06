@@ -2,14 +2,13 @@ use std::{sync::Arc, thread, time};
 
 use ethers::{
     contract::abigen,
-    core::types::{Address, Log, Transaction, H256},
+    core::types::{Address, Log, Transaction, H256, U256},
     middleware::SignerMiddleware,
     prelude::k256::SecretKey,
     providers::{Middleware, Provider, Ws},
     signers::{LocalWallet, Signer},
 };
 
-use ethers_flashbots::FlashbotsMiddleware;
 use ethers_providers::Http;
 use eyre::Result;
 
@@ -81,33 +80,16 @@ pub async fn event_callback(
     // Generate an Arc-ed provider to use with the web3 API.
     let chain_id = ep.get_chainid().await.map_err(|err| format!("{err}"))?;
     let wallet = LocalWallet::from(private_key).with_chain_id(chain_id.as_u64());
-    let ex_provider = Arc::new(SignerMiddleware::new(ip, wallet));
-
-    // // Add signer and Flashbots middleware
-    // let provider = Provider::<Http>::try_from(ip.url().as_str())?;
-    // let flashbots_middleware = SignerMiddleware::new(
-    //     FlashbotsMiddleware::new(provider, Url::parse("https://relay.flashbots.net")?, wallet),
-    //     wallet,
-    // );
+    let in_provider = Arc::new(SignerMiddleware::new(ip, wallet));
 
     // Get the swapped pair of tokens.
-    let pair = UniswapV2Pair::new(event.address, ex_provider.clone());
-    let token0 = pair
-        .token_0()
-        .call()
-        .await
-        .map_err(|err| format!("{err}"))?;
-    let token1 = pair
-        .token_1()
-        .call()
-        .await
-        .map_err(|err| format!("{err}"))?;
+    let pair = UniswapV2Pair::new(event.address, in_provider.clone());
 
     // Instantiate the UniswapV2 router for controlling asset liquidity.
     let router = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
         .parse::<Address>()
         .map_err(|err| format!("{err}"))?;
-    let router = UniswapV2Router::new(router, ex_provider);
+    let router = UniswapV2Router::new(router, in_provider.clone());
 
     // Figure out how much of each token exists in the pool.
     let (balance1, balance2, _) = pair
@@ -120,48 +102,63 @@ pub async fn event_callback(
     // Define and approve the trasaction to add liquidity.
 
     // Define and approve the transaction to remove liquidity.
+    let price = if balance1 > balance2 {
+        1000 * balance1 / balance2
+    } else {
+        1000 * balance2 / balance1
+    } / 1000;
+    println!("token1 / token2 price = {price}");
+    let liquidity = 0.into();
 
+    println!("Approving the transaction!");
+    let receipt = pair
+        .approve(router.address(), liquidity)
+        .send()
+        .await
+        .map_err(|err| format!("approve: {err}"))?
+        .await
+        .map_err(|err| format!("send: {err}"))?
+        .expect("no receipt found");
+    println!("Contract approved succesfully!");
+    println!("{receipt:?}");
+
+    println!("Removing {liquidity} liquidity!");
+
+    let token0 = pair
+        .token_0()
+        .call()
+        .await
+        .map_err(|err| format!("get token0: {err}"))?;
+    let token1 = pair
+        .token_1()
+        .call()
+        .await
+        .map_err(|err| format!("get token1: {err}"))?;
+
+    let receipt = router
+        .remove_liquidity(
+            token0,
+            token1,
+            liquidity,
+            0.into(),
+            0.into(),
+            in_provider.address(),
+            U256::MAX,
+        )
+        .send()
+        .await
+        .map_err(|err| format!("remove liquidity: {err}"))?
+        .await
+        .map_err(|err| format!("send remove liquidity: {err}"))?
+        .expect("no receipt for remove_liquidity");
+    println!("liquidity removed succesfully!");
+    println!("{receipt:?}");
+    // https://github.com/gakonst/ethers-rs/blob/10310ce3ad8562476196e9ec06f78c2a27417739/examples/transactions/examples/remove_liquidity.rs#L76
     // let tx_remove_liquidity = router.remove_liquidity(token1, token_b, liquidity, amount_a_min, amount_b_min, to, deadline)
 
     // Bundle the transactions into a flashbots bundle.
 
     // Send the flashbots bundle to the intenal Ganache provider to ensure that the transaction works.
-
+    println!("YEET");
     Ok(())
 }
-
-// Remove liquidity.
-//     let price =
-//         if reserve0 > reserve1 { 1000 * reserve0 / reserve1 } else { 1000 * reserve1 / reserve0 } /
-//             1000;
-//     println!("token0 / token1 price = {price}");
-
-//     let liquidity = 100.into();
-
-//     println!("Approving the transaction!");
-//     let receipt =
-//         pair.approve(router.address(), liquidity).send().await?.await?.expect("no receipt found");
-//     println!("contract approved succesfully!");
-//     println!("{receipt:?}");
-
-//     println!("Removing {liquidity} liquidity!");
-//     let token0 = pair.token_0().call().await?;= event.topic[1]
-//     let token1 = pair.token_1().call().await?;= event.topic[2]
-//     let receipt = router
-//         .remove_liquidity(
-//             token0,
-//             token1,
-//             liquidity,
-//             0.into(),
-//             0.into(),
-//             provider.address(),
-//             U256::MAX,
-//         )
-//         .send()
-//         .await?
-//         .await?
-//         .expect("no receipt for remove_liquidity");
-//     println!("liquidity removed succesfully!");
-//     println!("{receipt:?}");
-
-//     Ok(())
