@@ -1,9 +1,9 @@
 mod callback;
 
 use ethers::{
-    prelude::k256::SecretKey,
+    prelude::k256::{elliptic_curve::generic_array::GenericArray, Secp256k1, SecretKey},
     providers::{Middleware, Provider, Ws},
-    types::{BlockNumber, Filter, ValueOrArray, H256},
+    types::{BlockNumber, Filter, ValueOrArray, H160, H256},
     utils::{keccak256, Ganache, GanacheInstance},
 };
 use ethers_providers::rpc::transports::ws::WsClient;
@@ -34,8 +34,7 @@ pub async fn start(config: Config) -> String {
         ))
         .spawn();
     let ganache_ws_endpoint = ganache.ws_endpoint();
-    let addresses = ganache.addresses();
-    println!("Keys: {:?}", ganache.keys()[0].to_be_bytes());
+    let private_key = ganache.keys()[0].clone();
 
     // Connect to the ganache node.
     let ganache_provider = Provider::<Ws>::connect(ganache_ws_endpoint.clone())
@@ -60,7 +59,14 @@ pub async fn start(config: Config) -> String {
     // Process and forward all events in a separate thread.
     // This also keeps the ganache instance alive since it moves.
     tokio::spawn(async move {
-        forward(ganache, external_provider, ganache_provider, config).await;
+        forward(
+            ganache,
+            external_provider,
+            ganache_provider,
+            config,
+            private_key,
+        )
+        .await;
     });
 
     ganache_ws_endpoint
@@ -71,6 +77,7 @@ async fn forward(
     ep: Provider<WsClient>,
     ip: Provider<WsClient>,
     config: Config,
+    private_key: SecretKey,
 ) {
     let mut events_stream = ep
         .subscribe_logs(
@@ -96,6 +103,7 @@ async fn forward(
         let ip = ip.clone();
         let event = events_stream.next().await.unwrap();
         let config = config.clone();
+        let private_key = private_key.clone();
 
         // Process each new event
         tokio::spawn(async move {
@@ -105,6 +113,7 @@ async fn forward(
                 ip,
                 config.tx_retry_times,
                 config.tx_retry_interval,
+                private_key,
             )
             .await;
         });

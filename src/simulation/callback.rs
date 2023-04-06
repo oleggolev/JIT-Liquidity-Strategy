@@ -55,6 +55,7 @@ pub async fn event_callback(
     ip: Provider<Ws>,
     retry_times: u64,
     retry_period: u64,
+    private_key: SecretKey,
 ) -> Result<()> {
     let tx = try_get_transaction(
         event.transaction_hash.unwrap(),
@@ -67,9 +68,7 @@ pub async fn event_callback(
     let ex_provider = Arc::new({
         let provider = ep.clone();
         let chain_id = provider.get_chainid().await?;
-        let wallet = "725fd1619b2653b7ff1806bf29ae11d0568606d83777afd5b1f2e649bd5132a9"
-            .parse::<LocalWallet>()?
-            .with_chain_id(chain_id.as_u64());
+        let wallet = LocalWallet::from(private_key.clone()).with_chain_id(chain_id.as_u64());
 
         SignerMiddleware::new(provider, wallet)
     });
