@@ -13,4 +13,5 @@ futures-util = "0.3.27"
 serde = "1.0.155"
 serde_yaml = "0.9.19"
 tokio = { version = "1.26.0", features = ["full"] }
+eyre = "0.3"
 

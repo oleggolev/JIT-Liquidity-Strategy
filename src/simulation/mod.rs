@@ -1,6 +1,7 @@
 mod callback;
 
 use ethers::{
+    prelude::k256::SecretKey,
     providers::{Middleware, Provider, Ws},
     types::{BlockNumber, Filter, ValueOrArray, H256},
     utils::{keccak256, Ganache, GanacheInstance},
@@ -33,6 +34,8 @@ pub async fn start(config: Config) -> String {
         ))
         .spawn();
     let ganache_ws_endpoint = ganache.ws_endpoint();
+    let addresses = ganache.addresses();
+    println!("Keys: {:?}", ganache.keys()[0].to_be_bytes());
 
     // Connect to the ganache node.
     let ganache_provider = Provider::<Ws>::connect(ganache_ws_endpoint.clone())
@@ -92,10 +95,11 @@ async fn forward(
         let ep = ep.clone();
         let ip = ip.clone();
         let event = events_stream.next().await.unwrap();
+        let config = config.clone();
 
         // Process each new event
         tokio::spawn(async move {
-            event_callback(
+            _ = event_callback(
                 event,
                 ep,
                 ip,
