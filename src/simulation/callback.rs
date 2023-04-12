@@ -4,13 +4,14 @@ use ethers::{
     contract::abigen,
     core::types::{Address, Log, Transaction, H256, U256},
     middleware::SignerMiddleware,
-    prelude::k256::SecretKey,
     providers::{Middleware, Provider, Ws},
     signers::{LocalWallet, Signer},
 };
 
 use ethers_providers::Http;
 use eyre::Result;
+
+use crate::simulation::{GAS_PRICE, UNISWAP_V2_ROUTER};
 
 abigen!(
     UniswapV2Router,
@@ -61,7 +62,7 @@ pub async fn event_callback(
     ip: Provider<Http>,
     retry_times: u64,
     retry_period: u64,
-    private_key: SecretKey,
+    private_key: &str,
 ) -> Result<(), String> {
     // If the transaction was not posted to the node yet, attempt to acquire it until it's posted.
     let tx = try_get_transaction(
@@ -78,18 +79,23 @@ pub async fn event_callback(
     }
 
     // Generate an Arc-ed provider to use with the web3 API.
-    let chain_id = ep.get_chainid().await.map_err(|err| format!("{err}"))?;
-    let wallet = LocalWallet::from(private_key).with_chain_id(chain_id.as_u64());
-    let in_provider = Arc::new(SignerMiddleware::new(ip, wallet));
+    let chain_id = ip.get_chainid().await.map_err(|err| format!("{err}"))?;
+    let wallet = private_key
+        .parse::<LocalWallet>()
+        .unwrap()
+        .with_chain_id(chain_id.as_u64());
+    let in_provider = Arc::new(SignerMiddleware::new(ip.clone(), wallet));
 
     // Get the swapped pair of tokens.
     let pair = UniswapV2Pair::new(event.address, in_provider.clone());
 
     // Instantiate the UniswapV2 router for controlling asset liquidity.
-    let router = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
-        .parse::<Address>()
-        .map_err(|err| format!("{err}"))?;
-    let router = UniswapV2Router::new(router, in_provider.clone());
+    let router = UniswapV2Router::new(
+        UNISWAP_V2_ROUTER
+            .parse::<Address>()
+            .map_err(|err| format!("{err}"))?,
+        in_provider.clone(),
+    );
 
     // Figure out how much of each token exists in the pool.
     let (balance1, balance2, _) = pair
@@ -110,20 +116,21 @@ pub async fn event_callback(
     println!("token1 / token2 price = {price}");
     let liquidity = 0.into();
 
-    println!("Approving the transaction!");
+    println!("approve for: remove_liquidity");
     let receipt = pair
         .approve(router.address(), liquidity)
+        .gas_price(GAS_PRICE)
         .send()
         .await
         .map_err(|err| format!("approve: {err}"))?
         .await
         .map_err(|err| format!("send: {err}"))?
         .expect("no receipt found");
-    println!("Contract approved succesfully!");
+    println!("approve for: remove_liquidity successful");
     println!("{receipt:?}");
 
-    println!("Removing {liquidity} liquidity!");
-
+    // Actually remove the liquidity.
+    println!("remove_liquidity({liquidity})");
     let token0 = pair
         .token_0()
         .call()
@@ -134,7 +141,6 @@ pub async fn event_callback(
         .call()
         .await
         .map_err(|err| format!("get token1: {err}"))?;
-
     let receipt = router
         .remove_liquidity(
             token0,
@@ -151,9 +157,9 @@ pub async fn event_callback(
         .await
         .map_err(|err| format!("send remove liquidity: {err}"))?
         .expect("no receipt for remove_liquidity");
-    println!("liquidity removed succesfully!");
-    println!("{receipt:?}");
-    // https://github.com/gakonst/ethers-rs/blob/10310ce3ad8562476196e9ec06f78c2a27417739/examples/transactions/examples/remove_liquidity.rs#L76
+    println!("remove_liquidity({liquidity}) successful");
+    println!("receipt: {receipt:?}");
+
     // let tx_remove_liquidity = router.remove_liquidity(token1, token_b, liquidity, amount_a_min, amount_b_min, to, deadline)
 
     // Bundle the transactions into a flashbots bundle.

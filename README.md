@@ -53,6 +53,7 @@ cargo run <optional: /path/to/config.yaml>
 - [Comprehensive Guide on JIT] (https://uniswap.org/blog/jit-liquidity)
 - [Flashbot bundles js] (https://docs.flashbots.net/flashbots-auction/searchers/advanced/understanding-bundles)
 - [Flashbot bundles rs] (https://crates.io/crates/ethers-flashbots)
+- [Removing liquidity example] (https://github.com/gakonst/ethers-rs/blob/10310ce3ad8562476196e9ec06f78c2a27417739/examples/transactions/examples/remove_liquidity.rs)
 
 
 ## TODO:
