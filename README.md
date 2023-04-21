@@ -58,3 +58,8 @@ cargo run <optional: /path/to/config.yaml>
 
 ## TODO:
 Fork the Ethereum Mainnet with Ganache to interact with a snapshot of the Mainnet on our local Ganache instance. This will replicate all transactions and liquidity pool contracts (hopefully) that are available. Generate fake transactions for testing for inclusion into newly locally mined blocks. For each transaction, if it meets the necessary conditions for a JIT attack, use Flashbots middleware to bundle the transaction alongside liquidity provision and removal transactions. Measure fees required against the profit based on the size of the transaction. Optimize when JIT transactions should be executed. If there is time, we can add hedging to account for possible losses and miscalculations.
+
+curl -L https://foundry.paradigm.xyz | bash
+RESTART BASH
+foundaryup
+brew install libusb 

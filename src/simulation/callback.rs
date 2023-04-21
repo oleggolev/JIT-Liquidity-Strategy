@@ -1,17 +1,21 @@
-use std::{sync::Arc, thread, time};
+use std::{borrow::BorrowMut, sync::Arc, thread, time};
 
 use ethers::{
     contract::abigen,
     core::types::{Address, Log, Transaction, H256, U256},
     middleware::SignerMiddleware,
+    prelude::{gas_oracle::GasNow, MiddlewareBuilder},
     providers::{Middleware, Provider, Ws},
     signers::{LocalWallet, Signer},
+    types::H160,
 };
+use rand::Rng;
 
 use ethers_providers::Http;
 use eyre::Result;
+use tokio::sync::Mutex;
 
-use crate::simulation::{GAS_PRICE, UNISWAP_V2_ROUTER};
+use crate::simulation::{GAS_LIMIT, UNISWAP_V2_ROUTER};
 
 abigen!(
     UniswapV2Router,
@@ -31,8 +35,9 @@ abigen!(
     ]"#
 );
 
+// One per block.
 fn is_desirable_transaction(_tx: Transaction) -> bool {
-    true
+    rand::thread_rng().gen_bool(0.05)
 }
 
 async fn try_get_transaction(
@@ -62,7 +67,8 @@ pub async fn event_callback(
     ip: Provider<Http>,
     retry_times: u64,
     retry_period: u64,
-    private_key: &str,
+    wallet: LocalWallet,
+    nonce: Arc<Mutex<u64>>,
 ) -> Result<(), String> {
     // If the transaction was not posted to the node yet, attempt to acquire it until it's posted.
     let tx = try_get_transaction(
@@ -78,23 +84,29 @@ pub async fn event_callback(
         return Ok(());
     }
 
-    // Generate an Arc-ed provider to use with the web3 API.
-    let chain_id = ip.get_chainid().await.map_err(|err| format!("{err}"))?;
-    let wallet = private_key
-        .parse::<LocalWallet>()
-        .unwrap()
-        .with_chain_id(chain_id.as_u64());
-    let in_provider = Arc::new(SignerMiddleware::new(ip.clone(), wallet));
+    // let gas_oracle = GasNow::new();
+    // let addr = wallet.address();
+
+    // // Generate an Arc-ed provider to use with the web3 API.
+    // let chain_id = ip.get_chainid().await.map_err(|err| format!("{err}"))?;
+    // let wallet = wallet.with_chain_id(chain_id.as_u64());
+    // let in_provider = Arc::new(SignerMiddleware::new(ip.clone(), wallet.clone()));
+    let in_provider = Arc::new(ip.clone());
+    // let custom_provider = in_provider
+    //     .clone()
+    //     .gas_oracle(gas_oracle)
+    //     .with_signer(wallet)
+    //     .nonce_manager(addr);
 
     // Get the swapped pair of tokens.
-    let pair = UniswapV2Pair::new(event.address, in_provider.clone());
+    let pair = UniswapV2Pair::new(event.address, ip.into());
 
     // Instantiate the UniswapV2 router for controlling asset liquidity.
     let router = UniswapV2Router::new(
         UNISWAP_V2_ROUTER
             .parse::<Address>()
             .map_err(|err| format!("{err}"))?,
-        in_provider.clone(),
+        in_provider,
     );
 
     // Figure out how much of each token exists in the pool.
@@ -108,18 +120,29 @@ pub async fn event_callback(
     // Define and approve the trasaction to add liquidity.
 
     // Define and approve the transaction to remove liquidity.
-    let price = if balance1 > balance2 {
-        1000 * balance1 / balance2
-    } else {
-        1000 * balance2 / balance1
-    } / 1000;
-    println!("token1 / token2 price = {price}");
-    let liquidity = 0.into();
+    // let price = if balance1 > balance2 {
+    //     1000 * balance1 / balance2
+    // } else {
+    //     1000 * balance2 / balance1
+    // } / 1000;
+    // println!("token1 / token2 price = {price}");
+    let liquidity = 10.into();
+
+    // // Get the unique nonce.
+    // let mut nonce = nonce.lock().await;
+    // let this_nonce = *nonce;
+    // *nonce += 1;
+    // drop(nonce);
 
     println!("approve for: remove_liquidity");
-    let receipt = pair
-        .approve(router.address(), liquidity)
-        .gas_price(GAS_PRICE)
+    let approve_tx = pair.approve(router.address(), liquidity);
+    let gas_price = approve_tx
+        .estimate_gas()
+        .await
+        .map_err(|err| format!("approve: {err}"))?;
+    let receipt = approve_tx
+        // .gas_price(in_provider.get_gas_price().await.unwrap())
+        // .gas(GAS_LIMIT)
         .send()
         .await
         .map_err(|err| format!("approve: {err}"))?
@@ -148,7 +171,7 @@ pub async fn event_callback(
             liquidity,
             0.into(),
             0.into(),
-            in_provider.address(),
+            wallet.address(),
             U256::MAX,
         )
         .send()
@@ -164,7 +187,7 @@ pub async fn event_callback(
 
     // Bundle the transactions into a flashbots bundle.
 
-    // Send the flashbots bundle to the intenal Ganache provider to ensure that the transaction works.
+    // Send the flashbots bundle to the intenal Anvil provider to ensure that the transaction works.
     println!("YEET");
     Ok(())
 }

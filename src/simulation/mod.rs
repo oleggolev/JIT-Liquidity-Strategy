@@ -1,12 +1,17 @@
 mod callback;
 
+use std::sync::Arc;
+
 use ethers::{
+    prelude::{gas_oracle::GasNow, MiddlewareBuilder},
     providers::{Middleware, Provider, Ws},
-    types::{BlockNumber, Filter, ValueOrArray, H256},
-    utils::{keccak256, Ganache, GanacheInstance},
+    signers::{LocalWallet, Signer},
+    types::{BlockNumber, Filter, ValueOrArray, H160, H256},
+    utils::{keccak256, Anvil, AnvilInstance},
 };
 use ethers_providers::StreamExt;
 use ethers_providers::{rpc::transports::ws::WsClient, Http};
+use tokio::sync::Mutex;
 
 use crate::config::Config;
 
@@ -24,34 +29,41 @@ const LOCAL_WALLET_KEY_PREFIXED: &str =
 const LOCAL_WALLET_BALANCE: u64 = i64::MAX as u64;
 const UNISWAP_V2_ROUTER: &str = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
 
-const GAS_LIMIT: u64 = 100000000000;
-const GAS_PRICE: u64 = 10000000;
+const GAS_LIMIT: u64 = 30000000;
+// const GAS_PRICE: u64 = 10000000;
 
 pub async fn start(config: Config) -> String {
-    // Launch the local Ganache network, instantiated as a fork of the connected provider node's blockchain.
-    let ganache = Ganache::new()
-        .block_time(config.block_time)
-        .fork(format!(
-            "{}/{}",
-            if config.is_test {
-                INFURA_TESTNET_HTTP
-            } else {
-                INFURA_MAINNET_HTTP
-            },
-            config.api_key,
-        ))
-        .args([
-            format!("--account=\"{LOCAL_WALLET_KEY_PREFIXED},{LOCAL_WALLET_BALANCE}\""),
-            format!("--gasLimit={GAS_LIMIT}"),
-            format!("--gasPrice={GAS_PRICE}"),
-        ])
-        .spawn();
-    let ganache_http_endpoint = ganache.endpoint();
+    // Launch the local anvil network, instantiated as a fork of the connected provider node's blockchain.
+    // let anvil = Anvil::new()
+    //     .block_time(config.block_time)
+    //     .fork(format!(
+    //         "{}/{}",
+    //         if config.is_test {
+    //             INFURA_TESTNET_HTTP
+    //         } else {
+    //             INFURA_MAINNET_HTTP
+    //         },
+    //         config.api_key,
+    //     ))
+    //     .args([format!("--gas-limit={GAS_LIMIT}")])
+    //     .spawn();
 
-    // Connect to the ganache node.
-    let ganache_provider = Provider::<Http>::try_from(ganache_http_endpoint.clone()).unwrap();
+    let anvil = Anvil::new().fork("https://eth.llamarpc.com").spawn();
+    let from = anvil.addresses()[0];
+    // connect to the network
+    let anvil_provider = Provider::<Http>::try_from(anvil.endpoint())
+        .unwrap()
+        .with_sender(from);
 
-    // Connect to the provider through which we will process real-time events on the local Ganache network.
+    let anvil_http_endpoint = anvil.endpoint();
+    let wallet: LocalWallet = anvil.keys()[0].clone().into();
+    let gas_oracle = GasNow::new();
+
+    // Connect to the anvil node.
+    // let anvil_provider = Provider::<Http>::try_from(anvil_http_endpoint.clone()).unwrap();
+    // .with_sender(from);
+
+    // Connect to the provider through which we will process real-time events on the local anvil network.
     let external_provider = Provider::<Ws>::connect(match config.provider {
         crate::config::Provider::Infura => format!(
             "{}/{}",
@@ -67,19 +79,20 @@ pub async fn start(config: Config) -> String {
     .unwrap();
 
     // Process and forward all events in a separate thread.
-    // This also keeps the ganache instance alive since it moves.
+    // This also keeps the anvil instance alive since it moves.
     tokio::spawn(async move {
-        forward(ganache, external_provider, ganache_provider, config).await;
+        forward(anvil, external_provider, anvil_provider, config, wallet).await;
     });
 
-    ganache_http_endpoint
+    anvil_http_endpoint
 }
 
 async fn forward(
-    _ganache: GanacheInstance,
+    _anvil: AnvilInstance,
     ep: Provider<WsClient>,
     ip: Provider<Http>,
     config: Config,
+    wallet: LocalWallet,
 ) {
     let mut events_stream = ep
         .subscribe_logs(
@@ -99,6 +112,8 @@ async fn forward(
         )
         .await
         .unwrap();
+
+    let nonce = Arc::new(Mutex::new(0_u64));
     loop {
         // Clone provider nodes.
         let ep = ep.clone();
@@ -107,6 +122,8 @@ async fn forward(
         let config = config.clone();
 
         // Process each new event
+        let wallet_cl = wallet.clone();
+        let nonce_cl = Arc::clone(&nonce);
         tokio::spawn(async move {
             _ = event_callback(
                 event.clone(),
@@ -114,7 +131,8 @@ async fn forward(
                 ip,
                 config.tx_retry_times,
                 config.tx_retry_interval,
-                LOCAL_WALLET_KEY,
+                wallet_cl,
+                nonce_cl,
             )
             .await
             .map_err(|err| println!("could not process event {}: {:?}", event.address, err));
