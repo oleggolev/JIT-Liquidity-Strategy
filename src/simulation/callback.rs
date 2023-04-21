@@ -99,6 +99,7 @@ pub async fn event_callback(
     //     .nonce_manager(addr);
 
     // Get the swapped pair of tokens.
+    println!("{:?}", event.address);
     let pair = UniswapV2Pair::new(event.address, ip.into());
 
     // Instantiate the UniswapV2 router for controlling asset liquidity.
@@ -135,7 +136,7 @@ pub async fn event_callback(
     // drop(nonce);
 
     println!("approve for: remove_liquidity");
-    let approve_tx = pair.approve(router.address(), liquidity);
+    let approve_tx = pair.approve(router.address(), liquidity * 100);
     let gas_price = approve_tx
         .estimate_gas()
         .await
@@ -165,13 +166,14 @@ pub async fn event_callback(
         .await
         .map_err(|err| format!("get token1: {err}"))?;
     let receipt = router
-        .remove_liquidity(
+        .add_liquidity(
             token0,
             token1,
             liquidity,
+            liquidity,
             0.into(),
             0.into(),
-            wallet.address(),
+            router.address(),
             U256::MAX,
         )
         .send()
