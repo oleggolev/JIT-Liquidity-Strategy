@@ -25,12 +25,12 @@ npm install -g ganache@7.4.0
 
 Example `config.yaml` file:
 ```yaml
-is_test: true
-provider: infura
-api_key: <INSERT_YOUR_KEY_HERE>
+is_test: false
+provider: llama
+api_key: ~
 block_time: 12
 tx_retry_times: 5
-tx_retry_interval: 100
+tx_retry_period: 100
 ```
 ```
 block_time is in seconds.
@@ -63,3 +63,6 @@ curl -L https://foundry.paradigm.xyz | bash
 RESTART BASH
 foundaryup
 brew install libusb 
+
+## TODO:
+- Support for multiple external providers
