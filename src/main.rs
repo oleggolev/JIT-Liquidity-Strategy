@@ -1,5 +1,5 @@
 mod config;
-mod proxy;
+mod feed;
 
 use crate::config::read_config;
 use std::thread;
@@ -15,7 +15,7 @@ async fn main() {
             .unwrap_or(&DEFAULT_CONFIG_PATH.to_owned()),
     );
     tokio::spawn(async move {
-        proxy::start(config).await;
+        feed::start(config).await;
     });
 
     thread::park();

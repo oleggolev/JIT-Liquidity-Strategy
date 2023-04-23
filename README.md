@@ -66,3 +66,6 @@ brew install libusb
 
 ## TODO:
 - Support for multiple external providers
+rustup target add wasm32-wasi<br>
+curl -sSf https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install.sh | bash -s -- -e all <br>
+source $HOME/.wasmedge/env

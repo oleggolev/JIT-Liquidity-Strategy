@@ -1,5 +1,6 @@
-use std::{thread, time::Duration};
+use std::{fs, sync::Arc, thread, time::Duration};
 
+use ethereum_abi::Abi;
 use ethers::{
     providers::{Middleware, Provider, Ws},
     types::{Transaction, H256},
@@ -10,7 +11,7 @@ use ethers_providers::{rpc::transports::ws::WsClient, Http};
 
 use crate::config::Config;
 
-const NUM_ACCOUNTS: u64 = 100;
+const UNISWAP_V2_ADDR: &str = "0x7a250d5630b4cf539739df2c5dacb4c659f2488d";
 
 const LLAMA_WS: &str = "wss://eth.llamarpc.com";
 const LLAMA_HTTP: &str = "https://eth.llamarpc.com";
@@ -23,7 +24,6 @@ pub async fn start(config: Config) {
     let anvil = Anvil::new()
         .block_time(config.block_time)
         .fork(LLAMA_HTTP)
-        .arg(format!("--accounts={NUM_ACCOUNTS}"))
         .spawn();
     let anvil_provider = Provider::<Http>::try_from(anvil.endpoint()).unwrap();
 
@@ -45,15 +45,22 @@ pub async fn start(config: Config) {
     // Subscribe to a feed of all pending transactions from the external provider.
     let mut tx_stream = external_provider.subscribe_pending_txs().await.unwrap();
 
+    // Create an ABI decoder for the transaction inputs.
+    let abi_json =
+        fs::read_to_string(config.abi_json_path.clone()).expect("Cannot read ABI format from json");
+    let abi_decoder: Abi = serde_json::from_str(&abi_json).unwrap();
+    let abi_decoder = Arc::new(abi_decoder);
+
     // Forward every pending transaction to the local Anvil node.
     loop {
         let tx_hash = tx_stream.next().await.unwrap();
         let ep = external_provider.clone();
         let ip = anvil_provider.clone();
         let config = config.clone();
+        let abi_decoder = Arc::clone(&abi_decoder);
 
         tokio::spawn(async move {
-            let _ = forward(tx_hash, ep, ip, config)
+            let _ = forward(tx_hash, ep, ip, config, abi_decoder)
                 .await
                 .map_err(|err| println!("{err}"));
         });
@@ -65,10 +72,29 @@ async fn forward(
     ep: Provider<WsClient>,
     ip: Provider<Http>,
     config: Config,
+    abi_decoder: Arc<Abi>,
 ) -> Result<(), String> {
     let tx =
         try_get_transaction(tx_hash, ep, config.tx_retry_times, config.tx_retry_period).await?;
-    todo!();
+
+    // Capture all UNISWAP V2 transactions.
+    if let Some(to) = tx.to {
+        if format!("{to:?}") == UNISWAP_V2_ADDR {
+            // Decode transaction input to figure out which tokens are getting swapped.
+            let (_, decoded_input) = abi_decoder
+                .decode_input_from_hex(
+                    tx.input
+                        .to_string()
+                        .split('x')
+                        .collect::<Vec<&str>>()
+                        .get(1)
+                        .unwrap()
+                        .trim(),
+                )
+                .expect("failed decoding input");
+            println!("{decoded_input:?}");
+        }
+    }
     Ok(())
 }
 
