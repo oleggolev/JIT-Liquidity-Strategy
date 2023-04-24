@@ -1,4 +1,8 @@
-use actix_web::{web, App, HttpResponse, HttpServer};
+use actix_web::{
+    web::{web, Data},
+    App, HttpResponse, HttpServer,
+};
+use primitive_types::U256;
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
 
