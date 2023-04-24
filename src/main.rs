@@ -20,10 +20,11 @@ async fn main() {
 
     let data = Arc::new(Mutex::new(Vec::<DataPoint>::new()));
 
-    tokio::spawn(async move { run_server(data.clone()) });
-
     tokio::spawn(async move {
-        feed::start(config).await;
+        let feed_thread = feed::start(config, data.clone()).await;
+        let server_thread = run_server(data.clone());
+
+        tokio_join!(feed_thread, server_thread);
     });
 
     thread::park();

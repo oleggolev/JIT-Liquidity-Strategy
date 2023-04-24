@@ -1,9 +1,8 @@
 mod abi;
 
 use std::{
-    fs::{rename, File},
     io::prelude::*,
-    sync::Arc,
+    sync::{Arc, Mutex},
     thread,
     time::Duration,
 };
@@ -21,6 +20,7 @@ use ethers_providers::StreamExt;
 use ethers_providers::{rpc::transports::ws::WsClient, Http};
 
 use crate::config::Config;
+use crate::server::DataPoint;
 
 const UNISWAP_V2_ADDR: &str = "0x7a250d5630b4cf539739df2c5dacb4c659f2488d";
 const UNISWAP_V2_FACTORY: &str = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f";
