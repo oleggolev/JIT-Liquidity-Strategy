@@ -1,6 +1,12 @@
 mod abi;
 
-use std::{sync::Arc, thread, time::Duration};
+use std::{
+    fs::{rename, File},
+    io::prelude::*,
+    sync::Arc,
+    thread,
+    time::Duration,
+};
 
 use ethereum_abi::Value;
 use ethers::contract::abigen;
@@ -34,7 +40,7 @@ abigen!(
     ]"#
 );
 
-pub async fn start(config: Config) {
+pub async fn start(config: Config, data: Arc<Mutex<Vec<DataPoint>>>) {
     // Launch the local anvil network, instantiated as a fork of the connected provider node's blockchain.
     let anvil = Anvil::new().fork(LLAMA_HTTP).spawn();
     let anvil_provider = Provider::<Http>::try_from(anvil.endpoint()).unwrap();
@@ -69,7 +75,7 @@ pub async fn start(config: Config) {
         let abi = abi.clone();
 
         tokio::spawn(async move {
-            let _ = collect(tx_hash, ep, ip, config, abi).await;
+            let _ = collect(tx_hash, ep, ip, config, abi, data.clone()).await;
             // .map_err(|err| println!("{err:?}"));
         });
     }
@@ -81,6 +87,7 @@ async fn collect(
     ip: Provider<Http>,
     config: Config,
     abi: abi::Abi,
+    data: Arc<Mutex<Vec<DataPoint>>>,
 ) -> Result<(), String> {
     let tx = try_get_transaction(
         tx_hash,
@@ -186,9 +193,19 @@ async fn collect(
                 .await
                 .map_err(|err| format!("{err}"))?;
 
-            println!(
-                "[{tx_hash:?}] Exchanging {from_token_qty:?} of {from_token_symbol:?} for at least {to_token_qty:?} of {to_token_symbol:?}\nThe token reserves are (from_res, to_res) = ({balance1}, {balance2})"
-            );
+            // println!(
+            //     "[{tx_hash:?}] Exchanging {from_token_qty:?} of {from_token_symbol:?} for at least {to_token_qty:?} of {to_token_symbol:?}\nThe token reserves are (from_res, to_res) = ({balance1}, {balance2})"
+            // );
+            let mut data = data.lock().unwrap();
+            data.push(DataPoint {
+                tx_hash: format!("{:?}", tx_hash),
+                from_token_qty,
+                from_token_symbol,
+                to_token_qty,
+                to_token_symbol,
+                balance1,
+                balance2,
+            });
         }
     }
     Ok(())

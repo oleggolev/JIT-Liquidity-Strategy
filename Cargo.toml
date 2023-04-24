@@ -22,4 +22,5 @@ ethereum_abi = "0.4.0"
 primitive-types = "0.11.1"
 ethers-contract = "2.0.3"
 ethers-core = "2.0.3"
+actix-web = "4"
 
