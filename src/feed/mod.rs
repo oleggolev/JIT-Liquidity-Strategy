@@ -1,23 +1,38 @@
-use std::{fs, sync::Arc, thread, time::Duration};
+mod abi;
 
-use ethereum_abi::Abi;
+use std::{sync::Arc, thread, time::Duration};
+
+use ethereum_abi::Value;
+use ethers::contract::abigen;
+use ethers::types::H160;
 use ethers::{
     providers::{Middleware, Provider, Ws},
-    types::{Transaction, H256},
+    types::{Address, Transaction, H256},
     utils::Anvil,
 };
+use ethers_contract::Contract;
 use ethers_providers::StreamExt;
 use ethers_providers::{rpc::transports::ws::WsClient, Http};
 
 use crate::config::Config;
 
 const UNISWAP_V2_ADDR: &str = "0x7a250d5630b4cf539739df2c5dacb4c659f2488d";
+const UNISWAP_V2_FACTORY: &str = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f";
 
 const LLAMA_WS: &str = "wss://eth.llamarpc.com";
 const LLAMA_HTTP: &str = "https://eth.llamarpc.com";
 
 const INFURA_WS: &str = "wss://mainnet.infura.io/ws/v3";
-const INFURA_HTTP: &str = "https://mainnet.infura.io/ws/v3";
+
+abigen!(
+    UniswapV2Pair,
+    r#"[
+        approve(address,uint256)(bool)
+        getReserves()(uint112,uint112,uint32)
+        token0()(address)
+        token1()(address)
+    ]"#
+);
 
 pub async fn start(config: Config) {
     // Launch the local anvil network, instantiated as a fork of the connected provider node's blockchain.
@@ -45,11 +60,8 @@ pub async fn start(config: Config) {
     // Subscribe to a feed of all pending transactions from the external provider.
     let mut tx_stream = external_provider.subscribe_pending_txs().await.unwrap();
 
-    // Create an ABI decoder for the transaction inputs.
-    let abi_json =
-        fs::read_to_string(config.abi_json_path.clone()).expect("Cannot read ABI format from json");
-    let abi_decoder: Abi = serde_json::from_str(&abi_json).unwrap();
-    let abi_decoder = Arc::new(abi_decoder);
+    // Create ABI elements.
+    let abi = abi::Abi::new(config.abi_json_path.clone());
 
     // Forward every pending transaction to the local Anvil node.
     loop {
@@ -57,31 +69,36 @@ pub async fn start(config: Config) {
         let ep = external_provider.clone();
         let ip = anvil_provider.clone();
         let config = config.clone();
-        let abi_decoder = Arc::clone(&abi_decoder);
+        let abi = abi.clone();
 
         tokio::spawn(async move {
-            let _ = forward(tx_hash, ep, ip, config, abi_decoder)
-                .await
-                .map_err(|err| println!("{err}"));
+            let _ = collect(tx_hash, ep, ip, config, abi).await;
+            // .map_err(|err| println!("{err:?}"));
         });
     }
 }
 
-async fn forward(
+async fn collect(
     tx_hash: H256,
     ep: Provider<WsClient>,
     ip: Provider<Http>,
     config: Config,
-    abi_decoder: Arc<Abi>,
+    abi: abi::Abi,
 ) -> Result<(), String> {
-    let tx =
-        try_get_transaction(tx_hash, ep, config.tx_retry_times, config.tx_retry_period).await?;
+    let tx = try_get_transaction(
+        tx_hash,
+        ep.clone(),
+        config.tx_retry_times,
+        config.tx_retry_period,
+    )
+    .await?;
 
     // Capture all UNISWAP V2 transactions.
     if let Some(to) = tx.to {
         if format!("{to:?}") == UNISWAP_V2_ADDR {
             // Decode transaction input to figure out which tokens are getting swapped.
-            let (_, decoded_input) = abi_decoder
+            let (_, decoded_input) = abi
+                .uniswap_v2_abi
                 .decode_input_from_hex(
                     tx.input
                         .to_string()
@@ -92,7 +109,89 @@ async fn forward(
                         .trim(),
                 )
                 .expect("failed decoding input");
-            println!("{decoded_input:?}");
+
+            // Extract the two tokens being swapped, their quantity, and value.
+            let params_reader = decoded_input.reader();
+            let from_token_qty = match params_reader.by_name.get("amountIn") {
+                Some(amount_in) => match amount_in.value {
+                    Value::Uint(amount_in, _) => amount_in,
+                    _ => Err("unexpected type for `amountIn` value (not a Uint)")?,
+                },
+                None => Err("not a swap (`amountIn` absent)")?,
+            };
+            let to_token_qty = match params_reader.by_name.get("amountOutMin") {
+                Some(amount_out) => match amount_out.value {
+                    Value::Uint(amount_out, _) => amount_out,
+                    _ => Err("unexpected type for `amountOutMin` value (not a Uint)")?,
+                },
+                None => Err("not a swap (`amountOutMin` absent)")?,
+            };
+            let (from_token_addr, to_token_addr) = match params_reader.by_name.get("path") {
+                Some(path) => {
+                    let mut token_addresses: Vec<H160> = Vec::new();
+                    match path.value.clone() {
+                        ethereum_abi::Value::Array(arr, _) => {
+                            for val in arr {
+                                match val {
+                                    ethereum_abi::Value::Address(v) => {
+                                        token_addresses.push(v.0.into())
+                                    }
+                                    _ => Err("value inside `path` Array is not Address")?,
+                                }
+                            }
+                        }
+                        _ => Err("unexpected DecodedParam type for `path`")?,
+                    };
+                    if token_addresses.len() != 2 {
+                        Err("`path` param does not contain exactly 2 token addresses")?
+                    }
+                    (
+                        token_addresses.get(0).unwrap().to_owned(),
+                        token_addresses.get(1).unwrap().to_owned(),
+                    )
+                }
+                None => Err("not a swap (`path` absent)")?,
+            };
+
+            // Get the contract information of the two tokens.
+            let arc_ip = Arc::new(ip);
+            let from_token_contract =
+                Contract::new(from_token_addr, abi.erc20_token_abi.clone(), arc_ip.clone());
+            let from_token_symbol: String = from_token_contract
+                .method::<_, String>("symbol", ())
+                .map_err(|err| format!("{err:?}"))?
+                .call()
+                .await
+                .map_err(|err| format!("{err:?}"))?;
+            let to_token_contract =
+                Contract::new(to_token_addr, abi.erc20_token_abi.clone(), arc_ip.clone());
+            let to_token_symbol: String = to_token_contract
+                .method::<_, String>("symbol", ())
+                .map_err(|err| format!("{err:?}"))?
+                .call()
+                .await
+                .map_err(|err| format!("{err:?}"))?;
+
+            // Get the information about the token pair's liquidity pool.
+            let factory: Address = UNISWAP_V2_FACTORY.parse::<Address>().unwrap();
+            let factory_contract =
+                Contract::new(factory, abi.uniswap_v2_factory_abi.clone(), arc_ip.clone());
+            let pair_addr: Address = factory_contract
+                .method::<_, Address>("getPair", (from_token_addr, to_token_addr))
+                .map_err(|err| format!("{err:?}"))?
+                .call()
+                .await
+                .map_err(|err| format!("{err:?}"))?;
+            let pair = UniswapV2Pair::new(pair_addr, arc_ip);
+            let (balance1, balance2, _) = pair
+                .get_reserves()
+                .call()
+                .await
+                .map_err(|err| format!("{err}"))?;
+
+            println!(
+                "[{tx_hash:?}] Exchanging {from_token_qty:?} of {from_token_symbol:?} for at least {to_token_qty:?} of {to_token_symbol:?}\nThe token reserves are (from_res, to_res) = ({balance1}, {balance2})"
+            );
         }
     }
     Ok(())
