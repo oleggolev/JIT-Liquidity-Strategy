@@ -1,7 +1,6 @@
 mod abi;
 
 use std::{
-    io::prelude::*,
     sync::{Arc, Mutex},
     thread,
     time::Duration,
