@@ -15,7 +15,6 @@ pub struct Config {
     pub is_test: bool,
     pub provider: Provider,
     pub api_key: Option<String>,
-    pub block_time: u64,
     pub abi_json_path: String,
     pub tx_retry_times: u64,
     pub tx_retry_period: u64,

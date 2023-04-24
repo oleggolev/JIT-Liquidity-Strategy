@@ -36,10 +36,7 @@ abigen!(
 
 pub async fn start(config: Config) {
     // Launch the local anvil network, instantiated as a fork of the connected provider node's blockchain.
-    let anvil = Anvil::new()
-        .block_time(config.block_time)
-        .fork(LLAMA_HTTP)
-        .spawn();
+    let anvil = Anvil::new().fork(LLAMA_HTTP).spawn();
     let anvil_provider = Provider::<Http>::try_from(anvil.endpoint()).unwrap();
 
     // Connect to the external provider from which we will process raw pending transactions.
