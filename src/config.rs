@@ -18,6 +18,7 @@ pub struct Config {
     pub abi_json_path: String,
     pub tx_retry_times: u64,
     pub tx_retry_period: u64,
+    pub api_server_address: String,
 }
 
 pub fn read_config(path: impl AsRef<std::path::Path>) -> Config {

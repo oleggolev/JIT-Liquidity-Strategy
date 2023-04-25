@@ -1,11 +1,13 @@
 mod config;
+mod datapoint;
 mod feed;
 mod server;
 
+use datapoint::DataPoint;
+
 use crate::config::read_config;
-use crate::server::DataPoint;
 use std::sync::{Arc, Mutex};
-use std::thread;
+use std::{net, thread};
 
 const DEFAULT_CONFIG_PATH: &str = "config.yaml";
 
@@ -18,14 +20,22 @@ async fn main() {
             .unwrap_or(&DEFAULT_CONFIG_PATH.to_owned()),
     );
 
+    // This data is shared across threads.
     let data = Arc::new(Mutex::new(Vec::<DataPoint>::new()));
+
+    // Start up the API server.
+    server::Server::start(
+        config
+            .api_server_address
+            .parse::<net::SocketAddr>()
+            .expect("Error parsing API server address"),
+        &data,
+    );
+
+    // Begin the data feed from an external provider.
     let server_data = Arc::clone(&data);
     tokio::spawn(async move {
-        server::start(server_data);
-    });
-    let feed_data = Arc::clone(&data);
-    tokio::spawn(async move {
-        feed::start(config, feed_data).await;
+        feed::start(config, server_data).await;
     });
 
     thread::park();
