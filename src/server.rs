@@ -32,5 +32,5 @@ pub fn run_server(data: Arc<Mutex<Vec<DataPoint>>>) {
     })
     .bind("127.0.0.1:8080")
     .unwrap()
-    .run()
+    .run();
 }
