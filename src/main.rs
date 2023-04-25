@@ -3,7 +3,7 @@ mod feed;
 mod server;
 
 use crate::config::read_config;
-use crate::server::{run_server, DataPoint};
+use crate::server::DataPoint;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -19,12 +19,13 @@ async fn main() {
     );
 
     let data = Arc::new(Mutex::new(Vec::<DataPoint>::new()));
-
+    let server_data = Arc::clone(&data);
     tokio::spawn(async move {
-        run_server(data.clone());
+        server::start(server_data);
     });
+    let feed_data = Arc::clone(&data);
     tokio::spawn(async move {
-        feed::start(config, data.clone()).await;
+        feed::start(config, feed_data).await;
     });
 
     thread::park();

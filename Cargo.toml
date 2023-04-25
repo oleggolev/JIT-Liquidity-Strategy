@@ -23,4 +23,6 @@ primitive-types = "0.11.1"
 ethers-contract = "2.0.3"
 ethers-core = "2.0.3"
 actix-web = "4"
+chron = "0.1.1"
+chrono = "0.4.24"
 
