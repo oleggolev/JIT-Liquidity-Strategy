@@ -1,20 +1,20 @@
 use actix_web::{
-    web::{web, Data},
+    web::{self, Data},
     App, HttpResponse, HttpServer,
 };
-use primitive_types::U256;
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
 
 #[derive(Serialize, Clone)]
 pub struct DataPoint {
     pub tx_hash: String,
-    pub from_token_qty: U256,
+    pub from_token_qty: String,
     pub from_token_symbol: String,
-    pub to_token_qty: U256,
+    pub to_token_qty: String,
     pub to_token_symbol: String,
     pub balance1: u128,
     pub balance2: u128,
+    pub timestamp: i64,
 }
 
 async fn get_live_data(data: web::Data<Arc<Mutex<Vec<DataPoint>>>>) -> HttpResponse {
@@ -24,7 +24,7 @@ async fn get_live_data(data: web::Data<Arc<Mutex<Vec<DataPoint>>>>) -> HttpRespo
     response
 }
 
-pub fn run_server(data: Arc<Mutex<Vec<DataPoint>>>) {
+pub fn start(data: Arc<Mutex<Vec<DataPoint>>>) {
     HttpServer::new(move || {
         App::new()
             .app_data(Data::new(data.clone()))

@@ -72,9 +72,10 @@ pub async fn start(config: Config, data: Arc<Mutex<Vec<DataPoint>>>) {
         let ip = anvil_provider.clone();
         let config = config.clone();
         let abi = abi.clone();
+        let data = data.clone();
 
         tokio::spawn(async move {
-            let _ = collect(tx_hash, ep, ip, config, abi, data.clone()).await;
+            let _ = collect(tx_hash, ep, ip, config, abi, data).await;
             // .map_err(|err| println!("{err:?}"));
         });
     }
@@ -192,18 +193,17 @@ async fn collect(
                 .await
                 .map_err(|err| format!("{err}"))?;
 
-            // println!(
-            //     "[{tx_hash:?}] Exchanging {from_token_qty:?} of {from_token_symbol:?} for at least {to_token_qty:?} of {to_token_symbol:?}\nThe token reserves are (from_res, to_res) = ({balance1}, {balance2})"
-            // );
             let mut data = data.lock().unwrap();
+
             data.push(DataPoint {
-                tx_hash: format!("{:?}", tx_hash),
-                from_token_qty,
+                tx_hash: tx_hash.to_string(),
+                from_token_qty: from_token_qty.to_string(),
                 from_token_symbol,
-                to_token_qty,
+                to_token_qty: to_token_qty.to_string(),
                 to_token_symbol,
                 balance1,
                 balance2,
+                timestamp: chrono::Utc::now().timestamp_millis(),
             });
         }
     }
