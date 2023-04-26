@@ -78,8 +78,9 @@ pub async fn start(config: Config, data: Arc<Mutex<Vec<DataPoint>>>) {
         let wallet = wallet.clone();
 
         tokio::spawn(async move {
-            let _ = collect(tx_hash, ep, ip, config, abi, data, wallet).await;
-            // .map_err(|err| println!("{err:?}"));
+            let _ = collect(tx_hash, ep, ip, config, abi, data, wallet)
+                .await
+                .map_err(|err| println!("[{tx_hash:?}] {err:?}"));
         });
     }
 }
@@ -212,25 +213,10 @@ async fn collect(
                 .await
                 .map_err(|err| format!("{err:?}"))?;
 
-            // // Estimate gas fees for adding and removing liquidity.
-            // println!("To token: {to_token_symbol}");
-            // let liq_fee = router_contract
-            //     .method::<_, Address>(
-            //         "removeLiquidity",
-            //         (
-            //             from_token_addr,
-            //             to_token_addr,
-            //             ethers::types::U256(to_token_qty.0),
-            //             std::convert::Into::<ethers::types::U256>::into(0),
-            //             std::convert::Into::<ethers::types::U256>::into(0),
-            //             wallet.address(),
-            //             ethers::types::U256::MAX,
-            //         ),
-            //     )
-            //     .map_err(|err| format!("{err:?}"))?
-            //     .estimate_gas()
-            //     .await
-            //     .map_err(|err| format!("{err:?}"))?;
+            // Log the swap.
+            println!(
+                "[{tx_hash:?}] Exchanging {from_token_qty:?} of {from_token_symbol:?} for at least {to_token_qty:?} of {to_token_symbol:?})"
+            );
 
             // Make the data available for consumption through the API.
             let mut data = data.lock().unwrap();

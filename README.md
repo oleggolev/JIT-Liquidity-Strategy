@@ -14,7 +14,6 @@ foundaryup
 
 Example `config.yaml` file:
 ```yaml
-is_test: false
 provider: infura
 api_key: <key here>
 tx_retry_times: 1
