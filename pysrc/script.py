@@ -4,11 +4,33 @@ import json
 import time
 import streamlit as st
 import altair as alt
+import datetime
 
 def fetch_data():
-    response = requests.get("http://localhost:5000/get_data")
+    response = requests.get("http://localhost:8000/get_data")
     data = json.loads(response.text)
     return data
+
+def process_data(df):
+    # Convert wei to gwei
+    df['to_token_qty'] = df['to_token_qty'].astype(float) * 1e-18
+    df['balance2'] = df['balance2'].astype(float) * 1e-18
+    df['approve_fee'] = df['approve_fee'].astype(float) * 1e-18
+    df['liq_fee'] = df['liq_fee'].astype(float) * 1e-18
+    df['timestamp'] = df['timestamp'].astype(str)
+
+    num_columns = ['balance1', 'balance2', 'from_token_qty', 'to_token_qty']
+    for col in num_columns:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+
+    # Drop rows containing NaN values after conversion
+    df = df.dropna(subset=num_columns)
+
+    df = df[df['to_token_symbol'] == 'WETH']
+
+    return df.query('abs((balance1 * balance2) - ((balance1 + from_token_qty) * (balance2 - to_token_qty))) <= 0.005 * (balance1 * balance2)').reset_index(drop=True)
+
+
 
 def swap_size(df):
     df['swap_number'] = df.index + 1
@@ -17,7 +39,7 @@ def swap_size(df):
     swap_size_chart = alt.Chart(df).mark_line().encode(
         x=alt.X('swap_number:Q', axis=alt.Axis(title='Number of Swaps')),
         y=alt.Y('to_token_qty:Q', axis=alt.Axis(title='Swap Size (WETH)')),
-        tooltip=['swap_number', 'to_token_qty']
+        tooltip=[alt.Tooltip('from_token_symbol', title="Token 1"), alt.Tooltip('from_token_qty:Q', title="Token 1 Quantity", format='.2f'), alt.Tooltip('to_token_symbol', title='Token 2'), alt.Tooltip('to_token_qty:Q', title='Token 2 Quantity', format='.2f')]
     ).interactive().properties(
         width=600,
         height=400
@@ -26,19 +48,16 @@ def swap_size(df):
     return swap_size_chart
 
 def calculate_individual_profit_and_cost(row):
-    revenue = row['to_token_qty'] * 0.3 * 0.01
-    cost = 2 * (row['approve_fee'] + row['liq_fee'])
+    revenue = float(row['to_token_qty']) * 0.3 * 0.01
+    cost = 2 * (float(row['approve_fee']) + 40*1e-8)
     profit = revenue - cost
 
-    if profit > 0:
-        return profit, cost
-    else:
-        return 0, 0
+    return profit, cost
 
 def calculate_profit(df):
     df['profit'], df['cost'] = zip(*df.apply(calculate_individual_profit_and_cost, axis=1))
-    df['cumulative_profit'] = df['profit'].cumsum()
-    df['cumulative_cost'] = df['cost'].cumsum()
+    df['cumulative_profit'] = df['profit'].apply(lambda x: max(0, x)).cumsum()
+    df['cumulative_cost'] = df['cost'].apply(lambda x: max(0, x)).cumsum()
     return df
 
 
@@ -48,10 +67,14 @@ def display_cumulative_profit_chart(df):
     # Reshape the data to long format
     long_df = df.melt(id_vars='swap_number', value_vars=['cumulative_profit', 'cumulative_cost'], var_name='layer', value_name='value')
 
+    # Merge the relevant columns from the original dataframe to long_df
+    long_df = long_df.merge(df[['swap_number', 'from_token_qty', 'from_token_symbol', 'to_token_qty', 'to_token_symbol']], on='swap_number', how='left')
+
     cumulative_profit_chart = alt.Chart(long_df).mark_line().encode(
         x=alt.X('swap_number:Q', axis=alt.Axis(title='Number of Swaps')),
         y=alt.Y('value:Q', title='Cumulative Value (WETH)'),
-        color=alt.Color('layer:N', legend=alt.Legend(title='Layer'))
+        color=alt.Color('layer:N', legend=alt.Legend(title='Layer')),
+        tooltip=[alt.Tooltip('from_token_symbol', title="Token 1"), alt.Tooltip('from_token_qty:Q', title="Token 1 Quantity", format='.2f'), alt.Tooltip('to_token_symbol', title='Token 2'), alt.Tooltip('to_token_qty:Q', title='Token 1', format='.2f'), alt.Tooltip('profit:Q', title="Profit", format='.2f')]
     ).interactive().properties(
         width=1000,
         height=400
@@ -59,26 +82,49 @@ def display_cumulative_profit_chart(df):
 
     return cumulative_profit_chart
 
+def display_profit_loss_chart(df):
+    df['swap_number'] = df.index + 1
+
+    profit_loss_chart = alt.Chart(df).mark_bar().encode(
+        x=alt.X('swap_number:Q', axis=alt.Axis(title='Number of Swaps')),
+        y=alt.Y('profit:Q', axis=alt.Axis(title='Profit or Loss (WETH)'), scale=alt.Scale(type='symlog')),
+        color=alt.condition(
+            alt.datum.profit > 0,
+            alt.value('seagreen'),
+            alt.value('indianred')
+        ),
+        tooltip=[alt.Tooltip('from_token_symbol', title="Token 1"), alt.Tooltip('from_token_qty:Q', title="Token 1 Quantity", format='.2f'), alt.Tooltip('to_token_symbol', title='Token 2'), alt.Tooltip('to_token_qty:Q', title='Token 1', format='.2f'), alt.Tooltip('profit:Q', title="Profit", format='.2f')]
+    ).interactive().properties(
+        width=1000,
+        height=400
+    )
+
+    return profit_loss_chart
+
 # Streamlit App
 st.title("Live JIT Liquidity Dashboard")
 
 # Create placeholders for the numbers and labels
-swaps_col1, swaps_col2 = st.columns(2)
-swaps_col1.subheader("Number of Swaps")
+swaps_col1, swaps_col2, swaps_col3 = st.columns(3)
+swaps_col1.subheader("# of Swaps")
 swaps_col2.subheader("Viable Swaps")
+swaps_col3.subheader("Mean Swap Size")
 num_swaps_placeholder = swaps_col1.empty()
 num_viable_swaps_placeholder = swaps_col2.empty()
+mean_swap_vol_placeholder = swaps_col3.empty()
 
 # Create a placeholder for the chart
-st.subheader("Cumulative Swap Volume (WETH)")
+st.subheader("Swap Volume (WETH)")
 chart_placeholder = st.empty()
 st.subheader("Cumulative Profit (WETH)")
 cumulative_profit_chart_placeholder = st.empty()
+st.subheader("Profit or Loss (WETH)")
+profit_loss_chart_placeholder = st.empty()
 
 # Keep fetching and analyzing data periodically
 while True:
     data = fetch_data()
-    df = pd.DataFrame(data)
+    df = process_data(pd.DataFrame(eval(data)))
 
     # Calculate profits and filter viable swaps
     df = calculate_profit(df)
@@ -87,13 +133,18 @@ while True:
     # Update number of swaps and viable swaps
     num_swaps_placeholder.title(f"{len(df)}")
     num_viable_swaps_placeholder.title(f"{len(viable_swaps)}")
+    mean_swap_vol_placeholder.title(f"{round(df['to_token_qty'].mean(), 3)}")
 
     # Update charts
+    cumulative_profit_chart = display_cumulative_profit_chart(df)
+    cumulative_profit_chart_placeholder.altair_chart(cumulative_profit_chart, use_container_width=True)
+
     to_amount_chart = swap_size(df)
     chart_placeholder.altair_chart(to_amount_chart, use_container_width=True)
 
-    cumulative_profit_chart = display_cumulative_profit_chart(df)
-    cumulative_profit_chart_placeholder.altair_chart(cumulative_profit_chart, use_container_width=True)
+    profit_loss_chart = display_profit_loss_chart(df)
+    profit_loss_chart_placeholder.altair_chart(profit_loss_chart, use_container_width=True)
+
 
     # Wait for 5 seconds before fetching data again
     time.sleep(5)
