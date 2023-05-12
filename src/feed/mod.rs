@@ -2,7 +2,7 @@ mod abi;
 
 use ethereum_abi::Value;
 use ethers::contract::abigen;
-use ethers::signers::{LocalWallet, Signer};
+use ethers::signers::LocalWallet;
 use ethers::types::H160;
 use ethers::{
     providers::{Middleware, Provider, Ws},
@@ -92,7 +92,7 @@ async fn collect(
     config: Config,
     abi: AbiWrapper,
     data: Arc<Mutex<Vec<DataPoint>>>,
-    wallet: LocalWallet,
+    _wallet: LocalWallet,
 ) -> Result<(), String> {
     let tx = try_get_transaction(
         tx_hash,
@@ -101,6 +101,7 @@ async fn collect(
         config.tx_retry_period,
     )
     .await?;
+    let tx_receipt_ts = chrono::Utc::now().timestamp_millis();
 
     // Capture all UNISWAP V2 transactions.
     if let Some(to) = tx.to {
@@ -229,9 +230,9 @@ async fn collect(
                 balance1,
                 balance2,
                 approve_fee: approve_fee.mul(2_i64).to_string(),
-                // liq_fee: liq_fee.mul(2_i64).to_string(),
                 liq_fee: "0".to_owned(),
-                timestamp: chrono::Utc::now().timestamp_millis(),
+                tx_receipt_ts,
+                tx_prosessed_ts: chrono::Utc::now().timestamp_millis(),
             });
             drop(data);
         }
