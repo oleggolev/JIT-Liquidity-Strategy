@@ -214,19 +214,14 @@ async fn collect(
                 .await
                 .map_err(|err| format!("{err:?}"))?;
 
-            // Log the swap.
-            println!(
-                "[{tx_hash:?}] Exchanging {from_token_qty:?} of {from_token_symbol:?} for at least {to_token_qty:?} of {to_token_symbol:?})"
-            );
-
             // Make the data available for consumption through the API.
             let mut data = data.lock().unwrap();
             data.push(DataPoint {
                 tx_hash: tx_hash.to_string(),
                 from_token_qty: from_token_qty.to_string(),
-                from_token_symbol,
+                from_token_symbol: from_token_symbol.clone(),
                 to_token_qty: to_token_qty.to_string(),
-                to_token_symbol,
+                to_token_symbol: to_token_symbol.clone(),
                 balance1,
                 balance2,
                 approve_fee: approve_fee.mul(2_i64).to_string(),
@@ -235,6 +230,11 @@ async fn collect(
                 tx_prosessed_ts: chrono::Utc::now().timestamp_millis(),
             });
             drop(data);
+
+            // Log the swap.
+            println!(
+                "[{tx_hash:?}] Exchanging {from_token_qty:?} of {from_token_symbol:?} for at least {to_token_qty:?} of {to_token_symbol:?})"
+            );
         }
     }
     Ok(())
