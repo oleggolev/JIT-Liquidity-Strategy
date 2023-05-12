@@ -11,5 +11,6 @@ pub struct DataPoint {
     pub balance2: u128,
     pub approve_fee: String,
     pub liq_fee: String,
-    pub timestamp: i64,
+    pub tx_receipt_ts: i64,
+    pub tx_prosessed_ts: i64,
 }
