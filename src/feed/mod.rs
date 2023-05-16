@@ -201,8 +201,9 @@ async fn collect(
 
             // Use the router contract to estimate gas fees.
             let router: Address = UNISWAP_V2_ROUTER.parse::<Address>().unwrap();
+            let arc_ep = Arc::new(ep);
             let router_contract =
-                Contract::new(router, abi.uniswap_v2_router_abi.clone(), arc_ip.clone());
+                Contract::new(router, abi.uniswap_v2_router_abi.clone(), arc_ep.clone());
 
             // Estimate gas fees for approve.
             let approve_tx = pair.approve(

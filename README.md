@@ -15,10 +15,11 @@ foundaryup
 Example `config.yaml` file:
 ```yaml
 provider: infura
-api_key: <key here>
-tx_retry_times: 1
-tx_retry_period: 1000
+api_key: <YOUR INFURA KEY HERE>
 abi_json_path: ./abi
+tx_retry_times: 2
+tx_retry_period: 1000
+api_server_address: 127.0.0.1:8000
 ```
 `tx_retry_interval` is in milliseconds.
 
